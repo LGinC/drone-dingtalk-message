@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	webhook "github.com/lddsb/dingtalk-webhook"
@@ -29,8 +30,8 @@ type (
 		Status     string //  providers the current build status
 		Link       string //  providers the current build link
 		Event      string //  trigger event
-		StartAt    int64  //  build start at ( unix timestamp )
-		FinishedAt int64  //  build finish at ( unix timestamp )
+		StartAt    uint64 //  build start at ( unix timestamp )
+		FinishedAt uint64 //  build finish at ( unix timestamp )
 	}
 
 	// Commit commit info
@@ -41,6 +42,12 @@ type (
 		Sha     string //  providers the commit sha for the current build
 		Ref     string //  commit ref
 		Author  CommitAuthor
+	}
+
+	// Stage drone stage env
+	Stage struct {
+		StartedAt  uint64
+		FinishedAt uint64
 	}
 
 	// CommitAuthor commit author info
@@ -56,6 +63,7 @@ type (
 		Repo   Repo
 		Build  Build
 		Commit Commit
+		Stage  Stage
 	}
 
 	// Config plugin private config
@@ -104,39 +112,58 @@ type (
 		Message MessageConfig
 	}
 
+	// Custom user custom env
 	Custom struct {
-		Tpl   string
-		Color Color
-		Pic   Pic
+		Tpl       string
+		Color     Color
+		Pic       Pic
+		Consuming Consuming
 	}
 
+	// Tpl TPL base
 	Tpl struct {
 		Repo   TplRepo
 		Commit TplCommit
 		Build  TplBuild
 	}
 
+	// TplRepo TPL repo
 	TplRepo struct {
 		FullName  string
 		ShortName string
 	}
 
+	// TplCommit TPL commit
 	TplCommit struct {
 		Branch string
 	}
 
+	// TplBuild TPL build
 	TplBuild struct {
 		Status Status
 	}
 
+	// Status status
 	Status struct {
 		Success string
 		Failure string
+	}
+
+	// Consuming custom consuming env
+	Consuming struct {
+		StartedEnv  string
+		FinishedEnv string
 	}
 )
 
 // Exec execute WebHook
 func (p *Plugin) Exec() error {
+	if p.Config.Debug {
+		for _, e := range os.Environ() {
+			log.Println(e)
+		}
+	}
+
 	var err error
 	if "" == p.Config.AccessToken {
 		msg := "missing DingTalk access token"
@@ -194,7 +221,7 @@ func fileExists(filePath string) bool {
 // getTpl get tpl from local file or remote file
 func (p *Plugin) getTpl() (tpl string, err error) {
 	//var tpl string
-	tplDir := "/app/tpls"
+	tplDir := "/app/drone/dingtalk/message/tpls"
 	if "" == p.Custom.Tpl {
 		p.Custom.Tpl = fmt.Sprintf("%s/%s.tpl", tplDir, strings.ToLower(p.Config.MsgType))
 	}
@@ -249,6 +276,11 @@ func (p *Plugin) fillTpl(tpl string) string {
 	reg := regexp.MustCompile(`\[([^\[\]]*)]`)
 	match := reg.FindAllStringSubmatch(tpl, -1)
 	for _, m := range match {
+		// from environment
+		if envStr := os.Getenv(m[1]); envStr != "" {
+			tpl = strings.ReplaceAll(tpl, m[0], envStr)
+		}
+
 		// check if the keyword is legal
 		if _, ok := envs[m[1]]; ok {
 			// replace keyword
@@ -278,7 +310,20 @@ func (p *Plugin) getEnvs() map[string]interface{} {
 	envs["TPL_BUILD_STATUS"] = p.getStatus()
 	envs["TPL_BUILD_LINK"] = p.Drone.Build.Link
 	envs["TPL_BUILD_EVENT"] = p.Drone.Build.Event
-	envs["TPL_BUILD_CONSUMING"] = fmt.Sprintf("%v", p.Drone.Build.FinishedAt-p.Drone.Build.StartAt)
+
+	var consuming uint64
+	// custom consuming env
+	if p.Custom.Consuming.FinishedEnv != "" && p.Custom.Consuming.StartedEnv != "" {
+		finishedAt, _ := strconv.ParseUint(os.Getenv(p.Custom.Consuming.FinishedEnv), 10, 64)
+		startedAt, _ := strconv.ParseUint(os.Getenv(p.Custom.Consuming.StartedEnv), 10, 64)
+		consuming = finishedAt - startedAt
+	} else {
+		consuming = p.Drone.Build.FinishedAt - p.Drone.Build.StartAt
+		if consuming == 0 {
+			consuming = p.Drone.Stage.FinishedAt - p.Drone.Stage.StartedAt
+		}
+	}
+	envs["TPL_BUILD_CONSUMING"] = fmt.Sprintf("%v", consuming)
 
 	envs["TPL_COMMIT_SHA"] = p.Drone.Commit.Sha
 	envs["TPL_COMMIT_REF"] = p.Drone.Commit.Ref
