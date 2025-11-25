@@ -19,7 +19,7 @@
 `0.8.x`
 ```yaml
 pipeline:
-  ...
+  #...
   notification:
     image: lddsb/drone-dingtalk-message
     token: your-group-bot-token
@@ -29,7 +29,7 @@ pipeline:
 `1.x`
 ```yaml
 steps:
-...
+#...
 - name: notification
   image: lddsb/drone-dingtalk-message
   settings:
@@ -37,6 +37,25 @@ steps:
     type: markdown
     secret: your-secret-for-generate-sign
     debug: true
+```
+
+`Use the "exec" type`
+```yaml
+kind: pipeline
+type: exec
+
+steps:
+...
+
+- name: notification
+  environment:  # Using environment to pass parameters
+    PLUGIN_TOKEN:
+      from_secret: dingtalk_token
+    PLUGIN_TYPE: markdown
+    PLUGIN_DEBUG: false
+    PLUGIN_TPL: /data/drone/dingtalk/tpls/markdown.tpl  # The actual location (absolute path) of the tpl.
+  commands:
+    - /data/drone/dingtalk/dingtalk-message   # Location of the "dingtalk-message" file (absolute path)
 ```
 
 ### Plugin Parameter Reference
@@ -99,12 +118,17 @@ String. You can customize the [TPL_BUILD_STATUS] (when status=`success`) by this
 
 String. You can customize the [TPL_BUILD_STATUS] (when status=`failure`) by this configuration item.
 
+`msg_at_mobiles`
+
+String. You want at's phone number in the group, if you need at multi phone numbers, you can use `,` to separate. (if you use markdown type, you need define the at content in your tpl file)
+
 ### TPL
 > `tpl` won't work with message type `link` !!!
 
 That's a good news, we support `tpl` now.This is an example for `markdown` message:
 
 	# [TPL_REPO_FULL_NAME] build [TPL_BUILD_STATUS], takes [TPL_BUILD_CONSUMING]s
+    @mobile1 @mobile2
 	[TPL_COMMIT_MSG]
 
 	[TPL_COMMIT_SHA]([TPL_COMMIT_LINK])
@@ -182,7 +206,7 @@ $ cd /path/to/you/want && GO111MODULE=on go build .
 $ ./drone-dingtalk-message -h
 ```
 
-### Todo
+### TODO
 It's sad, just support `text`, `markdown` and `link` type now.
 - implement all message type
 - i18N
